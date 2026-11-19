@@ -12,81 +12,117 @@
 namespace
 {
 
-int insertImageBatchRaw(sqlite3* db, const ImageBatch& batch)
-{
-    const char* sql = R"(
+    void checkBindResult(int rc, sqlite3* db, sqlite3_stmt* stmt, const char* context)
+    {
+        if (rc != SQLITE_OK)
+        {
+            std::string error = std::string(context) + ": " + sqlite3_errmsg(db);
+            sqlite3_finalize(stmt);
+            throw std::runtime_error(error);
+        }
+    }
+
+    int insertImageBatchRaw(sqlite3* db, const ImageBatch& batch)
+    {
+        const char* sql = R"(
         INSERT INTO ImageBatch (name, sourcePath, status, createdDate)
         VALUES (?, ?, ?, ?);
     )";
 
-    sqlite3_stmt* stmt = nullptr;
+        sqlite3_stmt* stmt = nullptr;
 
-    int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK)
-    {
-        throw std::runtime_error(sqlite3_errmsg(db));
-    }
+        int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+        if (rc != SQLITE_OK)
+        {
+            throw std::runtime_error(sqlite3_errmsg(db));
+        }
 
-    sqlite3_bind_text(stmt, 1, batch.name.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, batch.sourcePath.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, batch.status.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, batch.createdDate.c_str(), -1, SQLITE_TRANSIENT);
+        checkBindResult(
+            sqlite3_bind_text(stmt, 1, batch.name.c_str(), -1, SQLITE_TRANSIENT),
+            db, stmt, "Failed to bind name"
+        );
+        checkBindResult(
+            sqlite3_bind_text(stmt, 2, batch.sourcePath.c_str(), -1, SQLITE_TRANSIENT),
+            db, stmt, "Failed to bind sourcePath"
+        );
+        checkBindResult(
+            sqlite3_bind_text(stmt, 3, batch.status.c_str(), -1, SQLITE_TRANSIENT),
+            db, stmt, "Failed to bind status"
+        );
+        checkBindResult(
+            sqlite3_bind_text(stmt, 4, batch.createdDate.c_str(), -1, SQLITE_TRANSIENT),
+            db, stmt, "Failed to bind createdDate"
+        );
 
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_DONE)
-    {
-        std::string error = sqlite3_errmsg(db);
+        rc = sqlite3_step(stmt);
+        if (rc != SQLITE_DONE)
+        {
+            std::string error = sqlite3_errmsg(db);
+            sqlite3_finalize(stmt);
+            throw std::runtime_error(error);
+        }
+
+        int id = static_cast<int>(sqlite3_last_insert_rowid(db));
         sqlite3_finalize(stmt);
-        throw std::runtime_error(error);
+        return id;
     }
 
-    int id = static_cast<int>(sqlite3_last_insert_rowid(db));
-    sqlite3_finalize(stmt);
-    return id;
-}
-
-std::optional<ImageBatch> findImageBatchByIdRaw(sqlite3* db, int id)
-{
-    const char* sql = R"(
+    std::optional<ImageBatch> findImageBatchByIdRaw(sqlite3* db, int id)
+    {
+        const char* sql = R"(
         SELECT id, name, sourcePath, status, createdDate
         FROM ImageBatch
         WHERE id = ?;
     )";
 
-    sqlite3_stmt* stmt = nullptr;
+        sqlite3_stmt* stmt = nullptr;
 
-    int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
-    if (rc != SQLITE_OK)
-    {
-        throw std::runtime_error(sqlite3_errmsg(db));
-    }
+        int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+        if (rc != SQLITE_OK)
+        {
+            throw std::runtime_error(sqlite3_errmsg(db));
+        }
 
-    sqlite3_bind_int(stmt, 1, id);
+        checkBindResult(
+            sqlite3_bind_int(stmt, 1, id),
+            db, stmt, "Failed to bind id"
+        );
 
-    rc = sqlite3_step(stmt);
-    if (rc == SQLITE_ROW)
-    {
-        ImageBatch batch;
-        batch.id = sqlite3_column_int(stmt, 0);
-        batch.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-        batch.sourcePath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-        batch.status = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
-        batch.createdDate = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        rc = sqlite3_step(stmt);
+        if (rc == SQLITE_ROW)
+        {
+            const unsigned char* colName = sqlite3_column_text(stmt, 1);
+            const unsigned char* colPath = sqlite3_column_text(stmt, 2);
+            const unsigned char* colStatus = sqlite3_column_text(stmt, 3);
+            const unsigned char* colDate = sqlite3_column_text(stmt, 4);
+
+            if (!colName || !colPath || !colStatus || !colDate)
+            {
+                sqlite3_finalize(stmt);
+                throw std::runtime_error("Unexpected NULL column in ImageBatch");
+            }
+
+            ImageBatch batch;
+            batch.id = sqlite3_column_int(stmt, 0);
+            batch.name = reinterpret_cast<const char*>(colName);
+            batch.sourcePath = reinterpret_cast<const char*>(colPath);
+            batch.status = reinterpret_cast<const char*>(colStatus);
+            batch.createdDate = reinterpret_cast<const char*>(colDate);
+
+            sqlite3_finalize(stmt);
+            return batch;
+        }
+
+        if (rc != SQLITE_DONE)
+        {
+            std::string error = sqlite3_errmsg(db);
+            sqlite3_finalize(stmt);
+            throw std::runtime_error(error);
+        }
 
         sqlite3_finalize(stmt);
-        return batch;
+        return std::nullopt;
     }
-
-    if (rc != SQLITE_DONE)
-    {
-        std::string error = sqlite3_errmsg(db);
-        sqlite3_finalize(stmt);
-        throw std::runtime_error(error);
-    }
-
-    sqlite3_finalize(stmt);
-    return std::nullopt;
-}
 
 } // namespace
 
@@ -97,8 +133,12 @@ void runRawSqliteDemo()
     int rc = sqlite3_open("image_pipeline_raw.db", &db);
     if (rc != SQLITE_OK)
     {
-        std::cerr << "Cannot open database: " << sqlite3_errmsg(db) << '\n';
-        sqlite3_close(db);
+        std::cerr << "Cannot open database: "
+            << (db ? sqlite3_errmsg(db) : "out of memory") << '\n';
+        if (db)
+        {
+            sqlite3_close(db);
+        }
         return;
     }
 
@@ -141,8 +181,8 @@ void runRawSqliteDemo()
         if (found)
         {
             std::cout << "Found: " << found->name
-                       << " | " << found->sourcePath
-                       << " | " << found->status << '\n';
+                << " | " << found->sourcePath
+                << " | " << found->status << '\n';
         }
         else
         {

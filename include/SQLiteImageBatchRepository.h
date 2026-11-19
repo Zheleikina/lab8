@@ -1,9 +1,10 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
-#include "IImageBatchRepository.h"
 #include "Database.h"
+#include "IImageBatchRepository.h"
 
 // Реалізація Repository для ImageBatch через sqlite_orm.
 class SQLiteImageBatchRepository : public IImageBatchRepository
@@ -19,9 +20,9 @@ public:
     bool update(const ImageBatch& batch) override;
     bool remove(int id) override;
 
-    // Доступ до сховища потрібен демонстраційному коду для роботи
-    // із залежною сутністю ProcessingTask та для транзакцій.
-    Storage& storage();
+    // ORM-вибірки (where / order_by виконуються на рівні БД)
+    std::vector<ImageBatch> findByStatus(const std::string& status);
+    std::vector<ImageBatch> findAllSortedByName();
 
 private:
     Storage storage_;

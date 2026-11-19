@@ -2,7 +2,6 @@
 
 #include <filesystem>
 #include <iostream>
-#include <stdexcept>
 #include <vector>
 
 #include "Database.h"
@@ -15,24 +14,7 @@ void prepareTestData()
     // щоб забезпечити повторюваність результатів запитів.
     std::filesystem::remove(databaseFile);
 
-    auto storage = createStorage(databaseFile);
-
-    storage.on_open = [](sqlite3* db)
-    {
-        if (sqlite3_exec(
-                db,
-                "PRAGMA foreign_keys = ON;",
-                nullptr,
-                nullptr,
-                nullptr
-            ) != SQLITE_OK)
-        {
-            throw std::runtime_error("Cannot enable foreign keys");
-        }
-    };
-
-    storage.open_forever();
-    storage.sync_schema();
+    auto storage = openConfiguredStorage(databaseFile);
 
     std::vector<ImageBatch> batches = {
         {0, "Vacation photos",    "/data/incoming/batch_1", "completed",  "2026-09-01"},

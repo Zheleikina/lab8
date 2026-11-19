@@ -21,6 +21,7 @@ public:
     // Update
     virtual bool update(const ImageBatch& batch) = 0;
 
-    // Delete
+    // Delete. Якщо для пакета існують пов'язані ProcessingTask без каскадного видалення,
+    // БД відхилить операцію порушенням зовнішнього ключа (виняток sqlite_orm / SQLite).
     virtual bool remove(int id) = 0;
 };

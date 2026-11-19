@@ -1,33 +1,10 @@
 #include "SQLiteImageBatchRepository.h"
 
-#include <stdexcept>
-
-#include <sqlite3.h>
-
 SQLiteImageBatchRepository::SQLiteImageBatchRepository(
     const std::string& databaseFile
 )
-    : storage_(createStorage(databaseFile))
-{
-    storage_.on_open = [](sqlite3* db)
-    {
-        if (sqlite3_exec(
-                db,
-                "PRAGMA foreign_keys = ON;",
-                nullptr,
-                nullptr,
-                nullptr
-            ) != SQLITE_OK)
-        {
-            throw std::runtime_error(
-                "Cannot enable foreign key constraints"
-            );
-        }
-    };
-
-    storage_.open_forever();
-    storage_.sync_schema();
-}
+    : storage_(openConfiguredStorage(databaseFile))
+{}
 
 int SQLiteImageBatchRepository::add(const ImageBatch& batch)
 {
@@ -47,7 +24,6 @@ std::vector<ImageBatch> SQLiteImageBatchRepository::findAll()
 bool SQLiteImageBatchRepository::update(const ImageBatch& batch)
 {
     auto existing = storage_.get_optional<ImageBatch>(batch.id);
-
     if (!existing)
     {
         return false;
@@ -60,17 +36,28 @@ bool SQLiteImageBatchRepository::update(const ImageBatch& batch)
 bool SQLiteImageBatchRepository::remove(int id)
 {
     auto existing = storage_.get_optional<ImageBatch>(id);
-
     if (!existing)
     {
         return false;
     }
 
+    // Якщо до пакета прив'язані ProcessingTask, БД згенерує виняток FOREIGN KEY constraint failed.
     storage_.remove<ImageBatch>(id);
     return true;
 }
 
-Storage& SQLiteImageBatchRepository::storage()
+std::vector<ImageBatch> SQLiteImageBatchRepository::findByStatus(const std::string& status)
 {
-    return storage_;
+    using namespace sqlite_orm;
+    return storage_.get_all<ImageBatch>(
+        where(c(&ImageBatch::status) == status)
+    );
+}
+
+std::vector<ImageBatch> SQLiteImageBatchRepository::findAllSortedByName()
+{
+    using namespace sqlite_orm;
+    return storage_.get_all<ImageBatch>(
+        order_by(&ImageBatch::name).asc()
+    );
 }
