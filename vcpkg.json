@@ -1,0 +1,9 @@
+{
+  "name": "image-pipeline-orm",
+  "version-string": "1.0.0",
+  "builtin-baseline": "e1ff419d28c7f0a94abaf0a848fe0aeeb69b2de3",
+  "dependencies": [
+    "sqlite3",
+    "sqlite-orm"
+  ]
+}
